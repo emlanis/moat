@@ -10,6 +10,12 @@ importers:
 
   apps/moat-demo:
     dependencies:
+      '@moat/router':
+        specifier: workspace:^
+        version: link:../../packages/moat-router
+      '@moat/widget':
+        specifier: workspace:^
+        version: link:../../packages/moat-widget
       next:
         specifier: 16.1.3
         version: 16.1.3(@babel/core@7.28.6)(react-dom@19.2.3(react@19.2.3))(react@19.2.3)
@@ -44,6 +50,14 @@ importers:
       typescript:
         specifier: ^5
         version: 5.9.3
+
+  packages/moat-router: {}
+
+  packages/moat-widget:
+    dependencies:
+      react:
+        specifier: ^19.0.0
+        version: 19.2.3
 
 packages:
 
