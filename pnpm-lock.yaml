@@ -6,7 +6,9 @@ settings:
 
 importers:
 
-  .:
+  .: {}
+
+  apps/moat-demo:
     dependencies:
       next:
         specifier: 16.1.3
