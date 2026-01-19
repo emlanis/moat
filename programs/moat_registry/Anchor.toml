@@ -1,0 +1,19 @@
+[toolchain]
+package_manager = "pnpm"
+
+[features]
+resolution = true
+skip-lint = false
+
+[programs.localnet]
+moat_registry = "7xrqC43sgnJAc1ozxGsXQBv8Jhw1K3GvhoXiT8F6R84i"
+
+[registry]
+url = "https://api.apr.dev"
+
+[provider]
+cluster = "devnet"
+wallet = "/Users/emlanis/.config/solana/devnet.json"
+
+[scripts]
+test = "pnpm exec mocha -t 1000000 tests/"
