@@ -5,15 +5,15 @@ package_manager = "pnpm"
 resolution = true
 skip-lint = false
 
-[programs.localnet]
-moat_registry = "7xrqC43sgnJAc1ozxGsXQBv8Jhw1K3GvhoXiT8F6R84i"
+[programs.devnet]
+moat_registry = "FTVm8gDndxnocAqi4sr53BnaymMXxESNGHgTzagJX2qY"
 
 [registry]
 url = "https://api.apr.dev"
 
 [provider]
 cluster = "devnet"
-wallet = "/Users/emlanis/.config/solana/devnet.json"
+wallet = "~/.config/solana/devnet.json"
 
 [scripts]
 test = "pnpm exec mocha -t 1000000 tests/"
