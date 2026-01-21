@@ -1,6 +1,6 @@
 use anchor_lang::prelude::*;
 
-declare_id!("9vgX5Xgt6dvZWQkccBRq4TLu2ysWJWaEmwJoHsdQy3yh");
+declare_id!("FTVm8gDndxnocAqi4sr53BnaymMXxESNGHgTzagJX2qY");
 
 #[program]
 pub mod moat_registry {

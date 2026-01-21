@@ -6,7 +6,7 @@ resolution = true
 skip-lint = false
 
 [programs.devnet]
-moat_registry = "9vgX5Xgt6dvZWQkccBRq4TLu2ysWJWaEmwJoHsdQy3yh"
+moat_registry = "FTVm8gDndxnocAqi4sr53BnaymMXxESNGHgTzagJX2qY"
 
 [registry]
 url = "https://api.apr.dev"

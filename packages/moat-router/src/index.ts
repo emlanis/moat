@@ -45,3 +45,12 @@ export {
   computeMerkleRoot,
   toHex,
 } from "./merkle";
+
+export {
+  MockAdapter,
+  SilentSwapAdapter,
+} from "./adapter";
+export type {
+  SwapAdapter,
+  SwapExecution,
+} from "./adapter";
