@@ -6,3 +6,5 @@ dist
 .DS_Store
 **/devnet.json
 .config/solana/
+.keys/
+programs/**/target/deploy/*-keypair.json

@@ -60,6 +60,16 @@ type RecipientInput = {
   assetCaip19: string;
 };
 
+type WalletLike = {
+  publicKey: PublicKey;
+  signTransaction: <T extends Transaction | VersionedTransaction>(
+    transaction: T,
+  ) => Promise<T>;
+  signAllTransactions: <T extends Transaction | VersionedTransaction>(
+    transactions: T[],
+  ) => Promise<T[]>;
+};
+
 const MAX_U64 = (1n << 64n) - 1n;
 
 const shortKey = (value: string) =>
@@ -68,6 +78,21 @@ const shortKey = (value: string) =>
 const isConnectedWallet = (
   wallet: PhantomProvider,
 ): wallet is ConnectedPhantomProvider => wallet.publicKey !== null;
+
+const buildProvider = (wallet: WalletLike) => {
+  const connection = new Connection(DEVNET_RPC, {
+    commitment: "confirmed",
+    confirmTransactionInitialTimeout: 60_000,
+  });
+  return new AnchorProvider(connection, wallet, {
+    commitment: "confirmed",
+    preflightCommitment: "confirmed",
+    maxRetries: 5,
+  });
+};
+
+const isBlockhashError = (message: string) =>
+  message.toLowerCase().includes("blockhash not found");
 
 const parseU64 = (value: string) => {
   const trimmed = value.trim();
@@ -154,10 +179,7 @@ export default function Page() {
       }
 
       setWalletAddress(wallet.publicKey.toBase58());
-      const connection = new Connection(DEVNET_RPC, "confirmed");
-      const nextProvider = new AnchorProvider(connection, wallet, {
-        commitment: "confirmed",
-      });
+      const nextProvider = buildProvider(wallet);
       setProvider(nextProvider);
       setStatus("connected");
     } catch (e: unknown) {
@@ -267,15 +289,31 @@ export default function Page() {
       setMemoHashHex(toHex(memoHash));
 
       setStatus("sending");
-      const signatureValue = await commitBatch(
-        provider,
-        new BN(batchId.toString()),
-        merkleRoot,
-        memoHash,
-        kindNumber,
-      );
-      setSignature(signatureValue);
-      setStatus("confirmed");
+      const sendCommit = async (activeProvider: AnchorProvider) =>
+        commitBatch(
+          activeProvider,
+          new BN(batchId.toString()),
+          merkleRoot,
+          memoHash,
+          kindNumber,
+        );
+
+      try {
+        const signatureValue = await sendCommit(provider);
+        setSignature(signatureValue);
+        setStatus("confirmed");
+      } catch (e: unknown) {
+        const msg = e instanceof Error ? e.message : String(e);
+        if (isBlockhashError(msg)) {
+          const refreshedProvider = buildProvider(provider.wallet);
+          setProvider(refreshedProvider);
+          const signatureValue = await sendCommit(refreshedProvider);
+          setSignature(signatureValue);
+          setStatus("confirmed");
+        } else {
+          throw e;
+        }
+      }
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
       setErrorMessage(msg);
