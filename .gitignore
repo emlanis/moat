@@ -4,6 +4,7 @@ dist
 .env
 .env.local
 .DS_Store
+demo-script.md
 **/devnet.json
 .config/solana/
 .keys/
