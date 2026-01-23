@@ -181,6 +181,9 @@ export default function Page() {
   const batchAccountUrl = batchInfo
     ? `https://solscan.io/account/${encodeURIComponent(batchInfo.pda)}?cluster=devnet`
     : null;
+  const batchAccountFmUrl = batchInfo
+    ? `https://solana.fm/address/${encodeURIComponent(batchInfo.pda)}?cluster=devnet`
+    : null;
 
   const statusText: Record<Status, string> = {
     idle: "idle",
@@ -641,39 +644,38 @@ export default function Page() {
         </button>
       </div>
 
-      <button
-        onClick={onCommit}
-        disabled={isBusy || !provider}
-        style={{
-          marginTop: 18,
-          padding: "10px 14px",
-          borderRadius: 10,
-          border: "1px solid #222",
-          fontWeight: 600,
-          cursor: isBusy || !provider ? "not-allowed" : "pointer",
-          opacity: isBusy || !provider ? 0.6 : 1,
-        }}
-      >
-        Commit Batch
-      </button>
-      <button
-        onClick={resetDemo}
-        disabled={isBusy}
-        style={{
-          marginTop: 10,
-          marginLeft: 10,
-          padding: "10px 14px",
-          borderRadius: 10,
-          border: "1px solid #222",
-          fontWeight: 600,
-          cursor: isBusy ? "not-allowed" : "pointer",
-          opacity: isBusy ? 0.6 : 1,
-          background: "transparent",
-          color: "inherit",
-        }}
-      >
-        Reset demo state
-      </button>
+      <div style={{ marginTop: 18, display: "flex", gap: 10, flexWrap: "wrap" }}>
+        <button
+          onClick={onCommit}
+          disabled={isBusy || !provider}
+          style={{
+            padding: "10px 14px",
+            borderRadius: 10,
+            border: "1px solid #222",
+            fontWeight: 600,
+            cursor: isBusy || !provider ? "not-allowed" : "pointer",
+            opacity: isBusy || !provider ? 0.6 : 1,
+          }}
+        >
+          Commit Batch
+        </button>
+        <button
+          onClick={resetDemo}
+          disabled={isBusy}
+          style={{
+            padding: "10px 14px",
+            borderRadius: 10,
+            border: "1px solid #222",
+            fontWeight: 600,
+            cursor: isBusy ? "not-allowed" : "pointer",
+            opacity: isBusy ? 0.6 : 1,
+            background: "transparent",
+            color: "inherit",
+          }}
+        >
+          Reset demo state
+        </button>
+      </div>
 
       {signature && (
         <div style={{ marginTop: 12, fontFamily: "monospace", fontSize: 13 }}>
@@ -693,11 +695,18 @@ export default function Page() {
           <div>created_at: {batchInfo.createdAt}</div>
           <div>onchain merkle_root: {batchInfo.merkleRoot}</div>
           <div>onchain memo_hash: {batchInfo.memoHash}</div>
-          {batchAccountUrl && (
-            <a href={batchAccountUrl} target="_blank" rel="noreferrer">
-              View batch account on Solscan
-            </a>
-          )}
+          <div style={{ marginTop: 6, display: "flex", gap: 12, flexWrap: "wrap" }}>
+            {batchAccountUrl && (
+              <a href={batchAccountUrl} target="_blank" rel="noreferrer">
+                View batch account on Solscan
+              </a>
+            )}
+            {batchAccountFmUrl && (
+              <a href={batchAccountFmUrl} target="_blank" rel="noreferrer">
+                View PDA on Solana.fm
+              </a>
+            )}
+          </div>
           <button
             onClick={onVerify}
             disabled={!commitSnapshot}
