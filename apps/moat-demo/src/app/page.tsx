@@ -573,8 +573,8 @@ export default function Page() {
         <Image
           src="/moat_logo.png"
           alt="Moat logo"
-          width={256}
-          height={256}
+          width={128}
+          height={128}
           priority
         />
         <div>
