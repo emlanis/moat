@@ -178,6 +178,9 @@ export default function Page() {
   const solscanUrl = signature
     ? `https://solscan.io/tx/${encodeURIComponent(signature)}?cluster=devnet`
     : null;
+  const batchAccountUrl = batchInfo
+    ? `https://solscan.io/account/${encodeURIComponent(batchInfo.pda)}?cluster=devnet`
+    : null;
 
   const statusText: Record<Status, string> = {
     idle: "idle",
@@ -651,6 +654,11 @@ export default function Page() {
           <div>created_at: {batchInfo.createdAt}</div>
           <div>onchain merkle_root: {batchInfo.merkleRoot}</div>
           <div>onchain memo_hash: {batchInfo.memoHash}</div>
+          {batchAccountUrl && (
+            <a href={batchAccountUrl} target="_blank" rel="noreferrer">
+              View batch account on Solscan
+            </a>
+          )}
           <button
             onClick={onVerify}
             disabled={!commitSnapshot}
