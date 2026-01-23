@@ -18,7 +18,7 @@ import {
   MockAdapter,
   SilentSwapAdapter,
 } from "@moat/router";
-import { commitBatch } from "@/lib/solana/moatClient";
+import { commitBatch, fetchBatchCommit } from "@/lib/solana/moatClient";
 import { DEVNET_RPC } from "@/lib/solana/constants";
 
 type PhantomProvider = {
@@ -68,6 +68,27 @@ type WalletLike = {
   signAllTransactions: <T extends Transaction | VersionedTransaction>(
     transactions: T[],
   ) => Promise<T[]>;
+};
+
+type BatchInfo = {
+  pda: string;
+  creator: string;
+  batchId: string;
+  kind: number;
+  createdAt: string;
+  merkleRoot: string;
+  memoHash: string;
+};
+
+type CommitSnapshot = {
+  batchId: bigint;
+  recipients: CommitmentRecipient[];
+  memo: {
+    title?: string;
+    note?: string;
+    createdAt: string;
+  };
+  kind: number;
 };
 
 const MAX_U64 = (1n << 64n) - 1n;
@@ -126,6 +147,13 @@ export default function Page() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [merkleRootHex, setMerkleRootHex] = useState<string | null>(null);
   const [memoHashHex, setMemoHashHex] = useState<string | null>(null);
+  const [batchInfo, setBatchInfo] = useState<BatchInfo | null>(null);
+  const [verificationMessage, setVerificationMessage] = useState<string | null>(
+    null,
+  );
+  const [commitSnapshot, setCommitSnapshot] = useState<CommitSnapshot | null>(
+    null,
+  );
   const [adapterStatus, setAdapterStatus] = useState<{
     orderId: string;
     status: string;
@@ -167,6 +195,9 @@ export default function Page() {
       setSignature(null);
       setMerkleRootHex(null);
       setMemoHashHex(null);
+      setBatchInfo(null);
+      setVerificationMessage(null);
+      setCommitSnapshot(null);
       setAdapterStatus(null);
       setStatus("connecting");
 
@@ -224,6 +255,9 @@ export default function Page() {
       setSignature(null);
       setMerkleRootHex(null);
       setMemoHashHex(null);
+      setBatchInfo(null);
+      setVerificationMessage(null);
+      setCommitSnapshot(null);
       setAdapterStatus(null);
       setStatus("building");
 
@@ -287,6 +321,12 @@ export default function Page() {
 
       setMerkleRootHex(toHex(merkleRoot));
       setMemoHashHex(toHex(memoHash));
+      setCommitSnapshot({
+        batchId,
+        recipients: cleanedRecipients,
+        memo,
+        kind: kindNumber,
+      });
 
       setStatus("sending");
       const sendCommit = async (activeProvider: AnchorProvider) =>
@@ -298,18 +338,43 @@ export default function Page() {
           kindNumber,
         );
 
-      try {
-        const signatureValue = await sendCommit(provider);
+      const finalize = async (activeProvider: AnchorProvider) => {
+        const signatureValue = await sendCommit(activeProvider);
         setSignature(signatureValue);
+        const batch = await fetchBatchCommit(
+          activeProvider,
+          activeProvider.wallet.publicKey,
+          new BN(batchId.toString()),
+        );
+        let createdAtLabel = batch.createdAt.toString();
+        try {
+          const createdAtSeconds = batch.createdAt.toNumber();
+          if (Number.isFinite(createdAtSeconds)) {
+            createdAtLabel = new Date(createdAtSeconds * 1000).toISOString();
+          }
+        } catch {
+          createdAtLabel = batch.createdAt.toString();
+        }
+        setBatchInfo({
+          pda: batch.pda.toBase58(),
+          creator: batch.creator.toBase58(),
+          batchId: batch.batchId.toString(),
+          kind: batch.kind,
+          createdAt: createdAtLabel,
+          merkleRoot: toHex(batch.merkleRoot),
+          memoHash: toHex(batch.memoHash),
+        });
         setStatus("confirmed");
+      };
+
+      try {
+        await finalize(provider);
       } catch (e: unknown) {
         const msg = e instanceof Error ? e.message : String(e);
         if (isBlockhashError(msg)) {
           const refreshedProvider = buildProvider(provider.wallet);
           setProvider(refreshedProvider);
-          const signatureValue = await sendCommit(refreshedProvider);
-          setSignature(signatureValue);
-          setStatus("confirmed");
+          await finalize(refreshedProvider);
         } else {
           throw e;
         }
@@ -318,6 +383,34 @@ export default function Page() {
       const msg = e instanceof Error ? e.message : String(e);
       setErrorMessage(msg);
       setStatus("error");
+    }
+  };
+
+  const onVerify = async () => {
+    if (!walletAddress || !commitSnapshot) {
+      setVerificationMessage("No committed batch to verify");
+      return;
+    }
+    try {
+      setVerificationMessage(null);
+      const leaves = await buildLeafHashes(
+        walletAddress,
+        commitSnapshot.batchId,
+        commitSnapshot.recipients,
+      );
+      const merkleRoot = await computeMerkleRoot(leaves);
+      const memoHash = await hashMemo(commitSnapshot.memo);
+      const merkleHex = toHex(merkleRoot);
+      const memoHex = toHex(memoHash);
+
+      if (merkleHex !== merkleRootHex || memoHex !== memoHashHex) {
+        setVerificationMessage("verification failed: hash mismatch");
+      } else {
+        setVerificationMessage("verification passed: hashes match");
+      }
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setVerificationMessage(`verification error: ${msg}`);
     }
   };
 
@@ -549,6 +642,31 @@ export default function Page() {
         </div>
       )}
 
+      {batchInfo && (
+        <div style={{ marginTop: 12, fontFamily: "monospace", fontSize: 13 }}>
+          <div>batch PDA: {batchInfo.pda}</div>
+          <div>creator: {shortKey(batchInfo.creator)}</div>
+          <div>batch_id: {batchInfo.batchId}</div>
+          <div>kind: {batchInfo.kind}</div>
+          <div>created_at: {batchInfo.createdAt}</div>
+          <div>onchain merkle_root: {batchInfo.merkleRoot}</div>
+          <div>onchain memo_hash: {batchInfo.memoHash}</div>
+          <button
+            onClick={onVerify}
+            disabled={!commitSnapshot}
+            style={{
+              marginTop: 10,
+              padding: "8px 12px",
+              borderRadius: 10,
+              border: "1px solid #222",
+              fontWeight: 600,
+            }}
+          >
+            Verify locally
+          </button>
+        </div>
+      )}
+
       {adapterStatus && (
         <div style={{ marginTop: 12, fontFamily: "monospace", fontSize: 13 }}>
           <div>adapter order: {adapterStatus.orderId}</div>
@@ -565,6 +683,12 @@ export default function Page() {
       {memoHashHex && (
         <div style={{ marginTop: 8, fontFamily: "monospace", fontSize: 13 }}>
           <div>memo_hash: {memoHashHex}</div>
+        </div>
+      )}
+
+      {verificationMessage && (
+        <div style={{ marginTop: 10, fontFamily: "monospace", fontSize: 13 }}>
+          {verificationMessage}
         </div>
       )}
 
