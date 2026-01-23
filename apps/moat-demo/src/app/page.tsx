@@ -246,6 +246,23 @@ export default function Page() {
     setRecipients((current) => current.filter((_, idx) => idx !== index));
   };
 
+  const resetDemo = () => {
+    setErrorMessage(null);
+    setSignature(null);
+    setMerkleRootHex(null);
+    setMemoHashHex(null);
+    setBatchInfo(null);
+    setVerificationMessage(null);
+    setCommitSnapshot(null);
+    setAdapterStatus(null);
+    setTitle("Devnet payout plan");
+    setNote("");
+    setBatchIdInput("0");
+    setKindInput("0");
+    setRecipients([{ recipientCaip10: "", amount: "", assetCaip19: "" }]);
+    setStatus(walletAddress ? "connected" : "idle");
+  };
+
   const onCommit = async () => {
     if (!provider || !walletAddress) {
       setErrorMessage("Connect Phantom first");
@@ -634,6 +651,24 @@ export default function Page() {
         }}
       >
         Commit Batch
+      </button>
+      <button
+        onClick={resetDemo}
+        disabled={isBusy}
+        style={{
+          marginTop: 10,
+          marginLeft: 10,
+          padding: "10px 14px",
+          borderRadius: 10,
+          border: "1px solid #222",
+          fontWeight: 600,
+          cursor: isBusy ? "not-allowed" : "pointer",
+          opacity: isBusy ? 0.6 : 1,
+          background: "transparent",
+          color: "inherit",
+        }}
+      >
+        Reset demo state
       </button>
 
       {signature && (
