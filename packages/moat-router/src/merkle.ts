@@ -5,7 +5,8 @@ export const MOAT_LEAF_PREFIX = "moat:v1";
 
 const textEncoder = new TextEncoder();
 const MAX_U32 = 0xffffffff;
-const MAX_U64 = (1n << 64n) - 1n;
+const MAX_U64 = BigInt("18446744073709551615");
+const ZERO_U64 = BigInt(0);
 
 const getSubtle = () => {
   const subtle = globalThis.crypto?.subtle;
@@ -37,7 +38,7 @@ const toU32Le = (value: number) => {
 };
 
 const toU64Le = (value: bigint) => {
-  if (value < 0n || value > MAX_U64) {
+  if (value < ZERO_U64 || value > MAX_U64) {
     throw new Error("Batch id must be a valid u64");
   }
   const out = new Uint8Array(8);

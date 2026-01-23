@@ -137,7 +137,10 @@ export async function fetchBatchCommit(
 }> {
   const program = getProgram(provider);
   const batchPda = deriveBatchPda(program.programId, creator, batchId);
-  const account = await program.account.batchCommit.fetch(batchPda);
+  const accountNamespace = program.account as unknown as {
+    batchCommit: { fetch: (address: PublicKey) => Promise<unknown> };
+  };
+  const account = await accountNamespace.batchCommit.fetch(batchPda);
   if (!isBatchCommit(account)) {
     throw new Error("Unexpected batch commit shape");
   }

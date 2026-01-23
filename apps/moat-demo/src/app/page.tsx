@@ -91,7 +91,7 @@ type CommitSnapshot = {
   kind: number;
 };
 
-const MAX_U64 = (1n << 64n) - 1n;
+const MAX_U64 = BigInt("18446744073709551615");
 
 const shortKey = (value: string) =>
   value.length > 10 ? `${value.slice(0, 4)}...${value.slice(-4)}` : value;
