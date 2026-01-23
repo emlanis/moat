@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import { useState } from "react";
 import {
   Connection,
@@ -18,7 +19,11 @@ import {
   MockAdapter,
   SilentSwapAdapter,
 } from "@moat/router";
-import { commitBatch, fetchBatchCommit } from "@/lib/solana/moatClient";
+import {
+  commitBatch,
+  fetchBatchCommit,
+  fetchBatchCommitsByCreator,
+} from "@/lib/solana/moatClient";
 import { DEVNET_RPC } from "@/lib/solana/constants";
 
 type PhantomProvider = {
@@ -139,18 +144,55 @@ const parseKind = (value: string) => {
   return parsed;
 };
 
+const formatCreatedAt = (value: BN) => {
+  let label = value.toString();
+  try {
+    const createdAtSeconds = value.toNumber();
+    if (Number.isFinite(createdAtSeconds)) {
+      label = new Date(createdAtSeconds * 1000).toISOString();
+    }
+  } catch {
+    label = value.toString();
+  }
+  return label;
+};
+
+const toBatchInfo = (batch: {
+  pda: PublicKey;
+  creator: PublicKey;
+  batchId: BN;
+  kind: number;
+  createdAt: BN;
+  merkleRoot: Uint8Array;
+  memoHash: Uint8Array;
+}): BatchInfo => ({
+  pda: batch.pda.toBase58(),
+  creator: batch.creator.toBase58(),
+  batchId: batch.batchId.toString(),
+  kind: batch.kind,
+  createdAt: formatCreatedAt(batch.createdAt),
+  merkleRoot: toHex(batch.merkleRoot),
+  memoHash: toHex(batch.memoHash),
+});
+
 export default function Page() {
   const [status, setStatus] = useState<Status>("idle");
   const [walletAddress, setWalletAddress] = useState<string | null>(null);
   const [provider, setProvider] = useState<AnchorProvider | null>(null);
   const [signature, setSignature] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [copyMessage, setCopyMessage] = useState<string | null>(null);
   const [merkleRootHex, setMerkleRootHex] = useState<string | null>(null);
   const [memoHashHex, setMemoHashHex] = useState<string | null>(null);
   const [batchInfo, setBatchInfo] = useState<BatchInfo | null>(null);
+  const [batchHistory, setBatchHistory] = useState<BatchInfo[]>([]);
+  const [historyMessage, setHistoryMessage] = useState<string | null>(null);
   const [verificationMessage, setVerificationMessage] = useState<string | null>(
     null,
   );
+  const [onchainVerificationMessage, setOnchainVerificationMessage] = useState<
+    string | null
+  >(null);
   const [commitSnapshot, setCommitSnapshot] = useState<CommitSnapshot | null>(
     null,
   );
@@ -195,14 +237,49 @@ export default function Page() {
     error: "error",
   };
 
+  const copyToClipboard = async (label: string, value: string) => {
+    setCopyMessage(null);
+    try {
+      if (!navigator.clipboard) {
+        throw new Error("Clipboard not available");
+      }
+      await navigator.clipboard.writeText(value);
+      setCopyMessage(`copied ${label}`);
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setCopyMessage(`copy failed: ${msg}`);
+    }
+  };
+
+  const refreshHistory = async (activeProvider: AnchorProvider) => {
+    setHistoryMessage(null);
+    try {
+      const commits = await fetchBatchCommitsByCreator(
+        activeProvider,
+        activeProvider.wallet.publicKey,
+      );
+      const sorted = commits.sort((a, b) => b.batchId.cmp(a.batchId));
+      setBatchHistory(sorted.map((batch) => toBatchInfo(batch)));
+      if (sorted.length === 0) {
+        setHistoryMessage("no batches yet");
+      }
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setHistoryMessage(`history error: ${msg}`);
+    }
+  };
+
   const onConnect = async () => {
     try {
       setErrorMessage(null);
+      setCopyMessage(null);
       setSignature(null);
       setMerkleRootHex(null);
       setMemoHashHex(null);
       setBatchInfo(null);
+      setHistoryMessage(null);
       setVerificationMessage(null);
+      setOnchainVerificationMessage(null);
       setCommitSnapshot(null);
       setAdapterStatus(null);
       setStatus("connecting");
@@ -219,6 +296,7 @@ export default function Page() {
       const nextProvider = buildProvider(wallet);
       setProvider(nextProvider);
       setStatus("connected");
+      await refreshHistory(nextProvider);
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
       setErrorMessage(msg);
@@ -251,11 +329,13 @@ export default function Page() {
 
   const resetDemo = () => {
     setErrorMessage(null);
+    setCopyMessage(null);
     setSignature(null);
     setMerkleRootHex(null);
     setMemoHashHex(null);
     setBatchInfo(null);
     setVerificationMessage(null);
+    setOnchainVerificationMessage(null);
     setCommitSnapshot(null);
     setAdapterStatus(null);
     setTitle("Devnet payout plan");
@@ -275,11 +355,13 @@ export default function Page() {
 
     try {
       setErrorMessage(null);
+      setCopyMessage(null);
       setSignature(null);
       setMerkleRootHex(null);
       setMemoHashHex(null);
       setBatchInfo(null);
       setVerificationMessage(null);
+      setOnchainVerificationMessage(null);
       setCommitSnapshot(null);
       setAdapterStatus(null);
       setStatus("building");
@@ -369,24 +451,8 @@ export default function Page() {
           activeProvider.wallet.publicKey,
           new BN(batchId.toString()),
         );
-        let createdAtLabel = batch.createdAt.toString();
-        try {
-          const createdAtSeconds = batch.createdAt.toNumber();
-          if (Number.isFinite(createdAtSeconds)) {
-            createdAtLabel = new Date(createdAtSeconds * 1000).toISOString();
-          }
-        } catch {
-          createdAtLabel = batch.createdAt.toString();
-        }
-        setBatchInfo({
-          pda: batch.pda.toBase58(),
-          creator: batch.creator.toBase58(),
-          batchId: batch.batchId.toString(),
-          kind: batch.kind,
-          createdAt: createdAtLabel,
-          merkleRoot: toHex(batch.merkleRoot),
-          memoHash: toHex(batch.memoHash),
-        });
+        setBatchInfo(toBatchInfo(batch));
+        await refreshHistory(activeProvider);
         setStatus("confirmed");
       };
 
@@ -407,6 +473,38 @@ export default function Page() {
       setErrorMessage(msg);
       setStatus("error");
     }
+  };
+
+  const onExportPlan = () => {
+    if (!commitSnapshot || !merkleRootHex || !memoHashHex) {
+      setErrorMessage("No committed batch to export");
+      return;
+    }
+    const payload = {
+      plan: {
+        id: `batch-${commitSnapshot.batchId.toString()}`,
+        creator: walletAddress,
+        batchId: commitSnapshot.batchId.toString(),
+        recipients: commitSnapshot.recipients,
+        memo: commitSnapshot.memo,
+        kind: commitSnapshot.kind,
+      },
+      merkleRoot: merkleRootHex,
+      memoHash: memoHashHex,
+      signature: signature ?? null,
+      batchPda: batchInfo?.pda ?? null,
+      mode,
+      exportedAt: new Date().toISOString(),
+    };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], {
+      type: "application/json",
+    });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `moat_commit_batch_${commitSnapshot.batchId.toString()}.json`;
+    link.click();
+    URL.revokeObjectURL(url);
   };
 
   const onVerify = async () => {
@@ -437,12 +535,55 @@ export default function Page() {
     }
   };
 
+  const onVerifyOnchain = async () => {
+    if (!provider || !walletAddress || !commitSnapshot) {
+      setOnchainVerificationMessage("No committed batch to verify");
+      return;
+    }
+    try {
+      setOnchainVerificationMessage(null);
+      const leaves = await buildLeafHashes(
+        walletAddress,
+        commitSnapshot.batchId,
+        commitSnapshot.recipients,
+      );
+      const merkleRoot = await computeMerkleRoot(leaves);
+      const memoHash = await hashMemo(commitSnapshot.memo);
+      const batch = await fetchBatchCommit(
+        provider,
+        provider.wallet.publicKey,
+        new BN(commitSnapshot.batchId.toString()),
+      );
+      const onchainRoot = toHex(batch.merkleRoot);
+      const onchainMemo = toHex(batch.memoHash);
+      if (toHex(merkleRoot) !== onchainRoot || toHex(memoHash) !== onchainMemo) {
+        setOnchainVerificationMessage("on-chain verification failed: mismatch");
+      } else {
+        setOnchainVerificationMessage("on-chain verification passed");
+      }
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setOnchainVerificationMessage(`on-chain verification error: ${msg}`);
+    }
+  };
+
   return (
     <main style={{ maxWidth: 720, margin: "40px auto", padding: 16 }}>
-      <h1 style={{ fontSize: 32, fontWeight: 700 }}>Moat Registry</h1>
-      <p style={{ opacity: 0.8 }}>
-        Devnet proof layer: commit_batch (payout commitments)
-      </p>
+      <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+        <Image
+          src="/moat_logo.png"
+          alt="Moat logo"
+          width={40}
+          height={40}
+          priority
+        />
+        <div>
+          <h1 style={{ fontSize: 32, fontWeight: 700 }}>Moat Registry</h1>
+          <p style={{ opacity: 0.8 }}>
+            Devnet proof layer: commit_batch (payout commitments)
+          </p>
+        </div>
+      </div>
 
       <div style={{ marginTop: 12 }}>
         <label style={{ fontSize: 13, opacity: 0.8 }}>Mode</label>
@@ -679,22 +820,101 @@ export default function Page() {
 
       {signature && (
         <div style={{ marginTop: 12, fontFamily: "monospace", fontSize: 13 }}>
-          <div>signature: {signature}</div>
-          <a href={solscanUrl ?? "#"} target="_blank" rel="noreferrer">
-            View on Solscan
-          </a>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <div>signature: {signature}</div>
+            <button
+              onClick={() => copyToClipboard("signature", signature)}
+              style={{
+                padding: "4px 8px",
+                borderRadius: 6,
+                border: "1px solid #333",
+                fontSize: 12,
+                background: "transparent",
+                color: "inherit",
+              }}
+            >
+              Copy
+            </button>
+          </div>
+          <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+            <a href={solscanUrl ?? "#"} target="_blank" rel="noreferrer">
+              View on Solscan
+            </a>
+            <button
+              onClick={onExportPlan}
+              style={{
+                padding: "4px 8px",
+                borderRadius: 6,
+                border: "1px solid #333",
+                fontSize: 12,
+                background: "transparent",
+                color: "inherit",
+              }}
+            >
+              Export plan JSON
+            </button>
+          </div>
         </div>
       )}
 
       {batchInfo && (
         <div style={{ marginTop: 12, fontFamily: "monospace", fontSize: 13 }}>
-          <div>batch PDA: {batchInfo.pda}</div>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <div>batch PDA: {batchInfo.pda}</div>
+            <button
+              onClick={() => copyToClipboard("batch PDA", batchInfo.pda)}
+              style={{
+                padding: "4px 8px",
+                borderRadius: 6,
+                border: "1px solid #333",
+                fontSize: 12,
+                background: "transparent",
+                color: "inherit",
+              }}
+            >
+              Copy
+            </button>
+          </div>
           <div>creator: {shortKey(batchInfo.creator)}</div>
           <div>batch_id: {batchInfo.batchId}</div>
           <div>kind: {batchInfo.kind}</div>
           <div>created_at: {batchInfo.createdAt}</div>
-          <div>onchain merkle_root: {batchInfo.merkleRoot}</div>
-          <div>onchain memo_hash: {batchInfo.memoHash}</div>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <div>onchain merkle_root: {batchInfo.merkleRoot}</div>
+            <button
+              onClick={() =>
+                copyToClipboard("onchain merkle_root", batchInfo.merkleRoot)
+              }
+              style={{
+                padding: "4px 8px",
+                borderRadius: 6,
+                border: "1px solid #333",
+                fontSize: 12,
+                background: "transparent",
+                color: "inherit",
+              }}
+            >
+              Copy
+            </button>
+          </div>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <div>onchain memo_hash: {batchInfo.memoHash}</div>
+            <button
+              onClick={() =>
+                copyToClipboard("onchain memo_hash", batchInfo.memoHash)
+              }
+              style={{
+                padding: "4px 8px",
+                borderRadius: 6,
+                border: "1px solid #333",
+                fontSize: 12,
+                background: "transparent",
+                color: "inherit",
+              }}
+            >
+              Copy
+            </button>
+          </div>
           <div style={{ marginTop: 6, display: "flex", gap: 12, flexWrap: "wrap" }}>
             {batchAccountUrl && (
               <a href={batchAccountUrl} target="_blank" rel="noreferrer">
@@ -707,19 +927,32 @@ export default function Page() {
               </a>
             )}
           </div>
-          <button
-            onClick={onVerify}
-            disabled={!commitSnapshot}
-            style={{
-              marginTop: 10,
-              padding: "8px 12px",
-              borderRadius: 10,
-              border: "1px solid #222",
-              fontWeight: 600,
-            }}
-          >
-            Verify locally
-          </button>
+          <div style={{ marginTop: 10, display: "flex", gap: 10, flexWrap: "wrap" }}>
+            <button
+              onClick={onVerify}
+              disabled={!commitSnapshot}
+              style={{
+                padding: "8px 12px",
+                borderRadius: 10,
+                border: "1px solid #222",
+                fontWeight: 600,
+              }}
+            >
+              Verify locally
+            </button>
+            <button
+              onClick={onVerifyOnchain}
+              disabled={!commitSnapshot || !provider}
+              style={{
+                padding: "8px 12px",
+                borderRadius: 10,
+                border: "1px solid #222",
+                fontWeight: 600,
+              }}
+            >
+              Verify on-chain
+            </button>
+          </div>
         </div>
       )}
 
@@ -732,13 +965,49 @@ export default function Page() {
 
       {merkleRootHex && (
         <div style={{ marginTop: 12, fontFamily: "monospace", fontSize: 13 }}>
-          <div>merkle_root: {merkleRootHex}</div>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <div>merkle_root: {merkleRootHex}</div>
+            <button
+              onClick={() => copyToClipboard("merkle_root", merkleRootHex)}
+              style={{
+                padding: "4px 8px",
+                borderRadius: 6,
+                border: "1px solid #333",
+                fontSize: 12,
+                background: "transparent",
+                color: "inherit",
+              }}
+            >
+              Copy
+            </button>
+          </div>
         </div>
       )}
 
       {memoHashHex && (
         <div style={{ marginTop: 8, fontFamily: "monospace", fontSize: 13 }}>
-          <div>memo_hash: {memoHashHex}</div>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <div>memo_hash: {memoHashHex}</div>
+            <button
+              onClick={() => copyToClipboard("memo_hash", memoHashHex)}
+              style={{
+                padding: "4px 8px",
+                borderRadius: 6,
+                border: "1px solid #333",
+                fontSize: 12,
+                background: "transparent",
+                color: "inherit",
+              }}
+            >
+              Copy
+            </button>
+          </div>
+        </div>
+      )}
+
+      {copyMessage && (
+        <div style={{ marginTop: 8, fontFamily: "monospace", fontSize: 13 }}>
+          {copyMessage}
         </div>
       )}
 
@@ -747,6 +1016,89 @@ export default function Page() {
           {verificationMessage}
         </div>
       )}
+
+      {onchainVerificationMessage && (
+        <div style={{ marginTop: 8, fontFamily: "monospace", fontSize: 13 }}>
+          {onchainVerificationMessage}
+        </div>
+      )}
+
+      <div style={{ marginTop: 20 }}>
+        <div style={{ fontSize: 14, marginBottom: 6 }}>Batch history</div>
+        <button
+          onClick={() => (provider ? refreshHistory(provider) : null)}
+          disabled={!provider || isBusy}
+          style={{
+            padding: "6px 10px",
+            borderRadius: 8,
+            border: "1px solid #222",
+            background: "transparent",
+            color: "inherit",
+            fontSize: 12,
+            cursor: !provider || isBusy ? "not-allowed" : "pointer",
+            opacity: !provider || isBusy ? 0.6 : 1,
+          }}
+        >
+          Refresh history
+        </button>
+        {historyMessage && (
+          <div style={{ marginTop: 8, fontFamily: "monospace", fontSize: 13 }}>
+            {historyMessage}
+          </div>
+        )}
+        {batchHistory.length > 0 && (
+          <div style={{ marginTop: 10, display: "grid", gap: 10 }}>
+            {batchHistory.map((entry) => (
+              <div
+                key={entry.pda}
+                style={{
+                  border: "1px solid #222",
+                  borderRadius: 10,
+                  padding: 10,
+                  fontFamily: "monospace",
+                  fontSize: 12,
+                }}
+              >
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                  <div>batch_id: {entry.batchId}</div>
+                  <div>kind: {entry.kind}</div>
+                </div>
+                <div>pda: {shortKey(entry.pda)}</div>
+                <div>created_at: {entry.createdAt}</div>
+                <div style={{ marginTop: 6, display: "flex", gap: 10 }}>
+                  <a
+                    href={`https://solscan.io/account/${encodeURIComponent(entry.pda)}?cluster=devnet`}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    Solscan
+                  </a>
+                  <a
+                    href={`https://solana.fm/address/${encodeURIComponent(entry.pda)}?cluster=devnet`}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    Solana.fm
+                  </a>
+                  <button
+                    onClick={() => copyToClipboard("batch PDA", entry.pda)}
+                    style={{
+                      padding: "4px 8px",
+                      borderRadius: 6,
+                      border: "1px solid #333",
+                      fontSize: 12,
+                      background: "transparent",
+                      color: "inherit",
+                    }}
+                  >
+                    Copy PDA
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
 
       {errorMessage && (
         <div style={{ marginTop: 12, color: "#b00020" }}>

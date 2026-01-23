@@ -1,5 +1,9 @@
 import { AnchorProvider, BN, Program, type Idl } from "@coral-xyz/anchor";
-import { PublicKey, SystemProgram } from "@solana/web3.js";
+import {
+  type GetProgramAccountsFilter,
+  PublicKey,
+  SystemProgram,
+} from "@solana/web3.js";
 import idlJson from "./moat_registry.idl.json";
 import { MOAT_PROGRAM_ID } from "./constants";
 
@@ -96,6 +100,20 @@ const deriveBatchPda = (
   )[0];
 };
 
+type BatchCommitAccountNamespace = {
+  fetch: (address: PublicKey) => Promise<unknown>;
+  all: (
+    filters?: GetProgramAccountsFilter[],
+  ) => Promise<{ publicKey: PublicKey; account: unknown }[]>;
+};
+
+const getBatchCommitNamespace = (program: Program<Idl>) => {
+  const accountNamespace = program.account as unknown as {
+    batchCommit: BatchCommitAccountNamespace;
+  };
+  return accountNamespace.batchCommit;
+};
+
 export async function commitBatch(
   provider: AnchorProvider,
   batchId: BN,
@@ -137,10 +155,8 @@ export async function fetchBatchCommit(
 }> {
   const program = getProgram(provider);
   const batchPda = deriveBatchPda(program.programId, creator, batchId);
-  const accountNamespace = program.account as unknown as {
-    batchCommit: { fetch: (address: PublicKey) => Promise<unknown> };
-  };
-  const account = await accountNamespace.batchCommit.fetch(batchPda);
+  const accountNamespace = getBatchCommitNamespace(program);
+  const account = await accountNamespace.fetch(batchPda);
   if (!isBatchCommit(account)) {
     throw new Error("Unexpected batch commit shape");
   }
@@ -162,4 +178,49 @@ export async function fetchBatchCommit(
     memoHash: toBytes(memoHashValue),
     createdAt: createdAtValue,
   };
+}
+
+export async function fetchBatchCommitsByCreator(
+  provider: AnchorProvider,
+  creator: PublicKey,
+): Promise<
+  Array<{
+    pda: PublicKey;
+    creator: PublicKey;
+    batchId: BN;
+    kind: number;
+    merkleRoot: Uint8Array;
+    memoHash: Uint8Array;
+    createdAt: BN;
+  }>
+> {
+  const program = getProgram(provider);
+  const accountNamespace = getBatchCommitNamespace(program);
+  const filters: GetProgramAccountsFilter[] = [
+    { memcmp: { offset: 8, bytes: creator.toBase58() } },
+  ];
+  const accounts = await accountNamespace.all(filters);
+
+  return accounts
+    .map(({ publicKey, account }) => {
+      if (!isBatchCommit(account)) return null;
+      const batchIdValue =
+        "batchId" in account ? account.batchId : account.batch_id;
+      const merkleRootValue =
+        "merkleRoot" in account ? account.merkleRoot : account.merkle_root;
+      const memoHashValue =
+        "memoHash" in account ? account.memoHash : account.memo_hash;
+      const createdAtValue =
+        "createdAt" in account ? account.createdAt : account.created_at;
+      return {
+        pda: publicKey,
+        creator: account.creator,
+        batchId: batchIdValue,
+        kind: account.kind,
+        merkleRoot: toBytes(merkleRootValue),
+        memoHash: toBytes(memoHashValue),
+        createdAt: createdAtValue,
+      };
+    })
+    .filter((entry): entry is NonNullable<typeof entry> => entry !== null);
 }
