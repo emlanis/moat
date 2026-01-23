@@ -458,6 +458,10 @@ export default function Page() {
           <option value="devnet-mock">devnet-mock</option>
           <option value="mainnet-silentswap">mainnet-silentswap</option>
         </select>
+        <div style={{ marginTop: 6, fontSize: 12, opacity: 0.7 }}>
+          devnet-mock simulates a swap locally; mainnet-silentswap is a stub until
+          live connectivity is enabled.
+        </div>
       </div>
 
       <button
