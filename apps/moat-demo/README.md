@@ -39,7 +39,20 @@ To learn more about Next.js, take a look at the following resources:
 
 You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
 
-## Deploy on Vercel
+## Vercel Deploy Guide
+
+Recommended for this monorepo:
+
+1) Create a new Vercel project from the repo.
+2) Set **Root Directory** to the repo root (not `apps/moat-demo`).
+3) Set **Install Command**: `pnpm install`
+4) Set **Build Command**: `pnpm --filter moat-demo build`
+5) Set **Output Directory**: `apps/moat-demo/.next`
+6) Deploy.
+
+Notes:
+- Phantom injects on HTTPS, so Vercel is a good fit for the demo.
+- The app is devnet-only; the UI still shows the mainnet SilentSwap toggle as a stub.
 
 The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
 
