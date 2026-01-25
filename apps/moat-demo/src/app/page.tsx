@@ -85,6 +85,18 @@ type BatchInfo = {
   memoHash: string;
 };
 
+type ValidationErrors = {
+  batchId?: string;
+  kind?: string;
+  recipients: Array<Partial<RecipientInput>>;
+};
+
+type ErrorLogEntry = {
+  context: string;
+  message: string;
+  time: string;
+};
+
 type CommitSnapshot = {
   batchId: bigint;
   recipients: CommitmentRecipient[];
@@ -97,6 +109,13 @@ type CommitSnapshot = {
 };
 
 const MAX_U64 = BigInt("18446744073709551615");
+const DEVNET_RPCS = Array.from(
+  new Set([
+    DEVNET_RPC,
+    "https://api.devnet.solana.com",
+    "https://rpc.ankr.com/solana_devnet",
+  ]),
+);
 
 const shortKey = (value: string) =>
   value.length > 10 ? `${value.slice(0, 4)}...${value.slice(-4)}` : value;
@@ -105,8 +124,8 @@ const isConnectedWallet = (
   wallet: PhantomProvider,
 ): wallet is ConnectedPhantomProvider => wallet.publicKey !== null;
 
-const buildProvider = (wallet: WalletLike) => {
-  const connection = new Connection(DEVNET_RPC, {
+const buildProvider = (wallet: WalletLike, endpoint = DEVNET_RPCS[0]) => {
+  const connection = new Connection(endpoint, {
     commitment: "confirmed",
     confirmTransactionInitialTimeout: 60_000,
   });
@@ -117,8 +136,16 @@ const buildProvider = (wallet: WalletLike) => {
   });
 };
 
-const isBlockhashError = (message: string) =>
-  message.toLowerCase().includes("blockhash not found");
+const isRetryableRpcError = (message: string) => {
+  const normalized = message.toLowerCase();
+  return (
+    normalized.includes("blockhash not found") ||
+    normalized.includes("429") ||
+    normalized.includes("rate limit") ||
+    normalized.includes("node is behind") ||
+    normalized.includes("temporarily unavailable")
+  );
+};
 
 const parseU64 = (value: string) => {
   const trimmed = value.trim();
@@ -143,6 +170,16 @@ const parseKind = (value: string) => {
   }
   return parsed;
 };
+
+const emptyRecipientError = (): Partial<RecipientInput> => ({
+  recipientCaip10: undefined,
+  amount: undefined,
+  assetCaip19: undefined,
+});
+
+const isNumericAmount = (value: string) => /^\d+(\.\d+)?$/.test(value);
+
+const hasCaipSegments = (value: string) => value.split(":").length >= 3;
 
 const formatCreatedAt = (value: BN) => {
   let label = value.toString();
@@ -181,6 +218,7 @@ export default function Page() {
   const [provider, setProvider] = useState<AnchorProvider | null>(null);
   const [signature, setSignature] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [lastErrorLog, setLastErrorLog] = useState<ErrorLogEntry | null>(null);
   const [copyMessage, setCopyMessage] = useState<string | null>(null);
   const [merkleRootHex, setMerkleRootHex] = useState<string | null>(null);
   const [memoHashHex, setMemoHashHex] = useState<string | null>(null);
@@ -206,6 +244,9 @@ export default function Page() {
   const [note, setNote] = useState("");
   const [batchIdInput, setBatchIdInput] = useState("0");
   const [kindInput, setKindInput] = useState("0");
+  const [validationErrors, setValidationErrors] = useState<ValidationErrors>({
+    recipients: [emptyRecipientError()],
+  });
   const [recipients, setRecipients] = useState<RecipientInput[]>([
     {
       recipientCaip10: "",
@@ -237,6 +278,18 @@ export default function Page() {
     error: "error",
   };
 
+  const logError = (context: string, error: unknown) => {
+    const message = error instanceof Error ? error.message : String(error);
+    const entry: ErrorLogEntry = {
+      context,
+      message,
+      time: new Date().toISOString(),
+    };
+    console.error(`[${context}]`, error);
+    setLastErrorLog(entry);
+    return message;
+  };
+
   const copyToClipboard = async (label: string, value: string) => {
     setCopyMessage(null);
     try {
@@ -246,7 +299,7 @@ export default function Page() {
       await navigator.clipboard.writeText(value);
       setCopyMessage(`copied ${label}`);
     } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : String(e);
+      const msg = logError("copy", e);
       setCopyMessage(`copy failed: ${msg}`);
     }
   };
@@ -264,19 +317,117 @@ export default function Page() {
         setHistoryMessage("no batches yet");
       }
     } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : String(e);
+      const msg = logError("history", e);
       setHistoryMessage(`history error: ${msg}`);
     }
+  };
+
+  const clearValidationForRecipient = (
+    index: number,
+    field?: keyof RecipientInput,
+  ) => {
+    setValidationErrors((current) => {
+      const nextRecipients = [...current.recipients];
+      while (nextRecipients.length < recipients.length) {
+        nextRecipients.push(emptyRecipientError());
+      }
+      if (nextRecipients[index]) {
+        if (field) {
+          nextRecipients[index] = {
+            ...nextRecipients[index],
+            [field]: undefined,
+          };
+        } else {
+          nextRecipients[index] = emptyRecipientError();
+        }
+      }
+      return {
+        ...current,
+        recipients: nextRecipients.slice(0, recipients.length),
+      };
+    });
+  };
+
+  const validateForm = () => {
+    const errors: ValidationErrors = {
+      recipients: recipients.map(() => emptyRecipientError()),
+    };
+    let batchId: bigint | null = null;
+    let kindNumber: number | null = null;
+
+    try {
+      batchId = parseU64(batchIdInput);
+      if (
+        batchHistory.some((entry) => entry.batchId === batchId?.toString())
+      ) {
+        errors.batchId = "batch_id already used for this wallet";
+      }
+    } catch (e: unknown) {
+      errors.batchId = e instanceof Error ? e.message : String(e);
+    }
+
+    try {
+      kindNumber = parseKind(kindInput);
+    } catch (e: unknown) {
+      errors.kind = e instanceof Error ? e.message : String(e);
+    }
+
+    const cleanedRecipients: CommitmentRecipient[] = recipients.map(
+      (recipient, index) => {
+        const recipientCaip10 = recipient.recipientCaip10.trim();
+        const amount = recipient.amount.trim();
+        const assetCaip19 = recipient.assetCaip19.trim();
+        if (!recipientCaip10) {
+          errors.recipients[index].recipientCaip10 =
+            "Recipient CAIP-10 is required";
+        } else if (!hasCaipSegments(recipientCaip10)) {
+          errors.recipients[index].recipientCaip10 =
+            "Recipient CAIP-10 must look like solana:devnet:<address>";
+        }
+        if (!amount) {
+          errors.recipients[index].amount = "Amount is required";
+        } else if (!isNumericAmount(amount)) {
+          errors.recipients[index].amount =
+            "Amount must be a numeric string";
+        }
+        if (!assetCaip19) {
+          errors.recipients[index].assetCaip19 = "Asset CAIP-19 is required";
+        } else if (!hasCaipSegments(assetCaip19)) {
+          errors.recipients[index].assetCaip19 =
+            "Asset CAIP-19 must look like solana:devnet:<mint>";
+        }
+        return { recipientCaip10, amount, assetCaip19 };
+      },
+    );
+
+    const hasErrors =
+      Boolean(errors.batchId) ||
+      Boolean(errors.kind) ||
+      errors.recipients.some((entry) =>
+        Object.values(entry).some((value) => Boolean(value)),
+      );
+
+    setValidationErrors(errors);
+    if (hasErrors || batchId === null || kindNumber === null) {
+      return null;
+    }
+
+    return { batchId, kindNumber, cleanedRecipients };
   };
 
   const onConnect = async () => {
     try {
       setErrorMessage(null);
       setCopyMessage(null);
+      setLastErrorLog(null);
+      setValidationErrors({
+        recipients: recipients.map(() => emptyRecipientError()),
+      });
       setSignature(null);
       setMerkleRootHex(null);
       setMemoHashHex(null);
       setBatchInfo(null);
+      setBatchHistory([]);
       setHistoryMessage(null);
       setVerificationMessage(null);
       setOnchainVerificationMessage(null);
@@ -298,7 +449,7 @@ export default function Page() {
       setStatus("connected");
       await refreshHistory(nextProvider);
     } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : String(e);
+      const msg = logError("connect", e);
       setErrorMessage(msg);
       setStatus("error");
     }
@@ -314,6 +465,7 @@ export default function Page() {
         idx === index ? { ...recipient, [field]: value } : recipient,
       ),
     );
+    clearValidationForRecipient(index, field);
   };
 
   const addRecipient = () => {
@@ -321,15 +473,24 @@ export default function Page() {
       ...current,
       { recipientCaip10: "", amount: "", assetCaip19: "" },
     ]);
+    setValidationErrors((current) => ({
+      ...current,
+      recipients: [...current.recipients, emptyRecipientError()],
+    }));
   };
 
   const removeRecipient = (index: number) => {
     setRecipients((current) => current.filter((_, idx) => idx !== index));
+    setValidationErrors((current) => ({
+      ...current,
+      recipients: current.recipients.filter((_, idx) => idx !== index),
+    }));
   };
 
   const resetDemo = () => {
     setErrorMessage(null);
     setCopyMessage(null);
+    setLastErrorLog(null);
     setSignature(null);
     setMerkleRootHex(null);
     setMemoHashHex(null);
@@ -343,6 +504,7 @@ export default function Page() {
     setBatchIdInput("0");
     setKindInput("0");
     setRecipients([{ recipientCaip10: "", amount: "", assetCaip19: "" }]);
+    setValidationErrors({ recipients: [emptyRecipientError()] });
     setStatus(walletAddress ? "connected" : "idle");
   };
 
@@ -356,6 +518,7 @@ export default function Page() {
     try {
       setErrorMessage(null);
       setCopyMessage(null);
+      setLastErrorLog(null);
       setSignature(null);
       setMerkleRootHex(null);
       setMemoHashHex(null);
@@ -366,32 +529,13 @@ export default function Page() {
       setAdapterStatus(null);
       setStatus("building");
 
-      const batchId = parseU64(batchIdInput);
-      const kindNumber = parseKind(kindInput);
-
-      const cleanedRecipients: CommitmentRecipient[] = recipients.map(
-        (recipient) => ({
-          recipientCaip10: recipient.recipientCaip10.trim(),
-          amount: recipient.amount.trim(),
-          assetCaip19: recipient.assetCaip19.trim(),
-        }),
-      );
-
-      if (cleanedRecipients.length === 0) {
-        throw new Error("Add at least one recipient");
+      const validated = validateForm();
+      if (!validated) {
+        setStatus("error");
+        setErrorMessage("Fix the highlighted fields before committing");
+        return;
       }
-
-      cleanedRecipients.forEach((recipient, index) => {
-        if (!recipient.recipientCaip10) {
-          throw new Error(`Recipient ${index + 1} is missing CAIP-10`);
-        }
-        if (!recipient.amount) {
-          throw new Error(`Recipient ${index + 1} is missing amount`);
-        }
-        if (!recipient.assetCaip19) {
-          throw new Error(`Recipient ${index + 1} is missing CAIP-19`);
-        }
-      });
+      const { batchId, kindNumber, cleanedRecipients } = validated;
 
       const createdAt = new Date().toISOString();
       const memo = {
@@ -456,20 +600,32 @@ export default function Page() {
         setStatus("confirmed");
       };
 
-      try {
-        await finalize(provider);
-      } catch (e: unknown) {
-        const msg = e instanceof Error ? e.message : String(e);
-        if (isBlockhashError(msg)) {
-          const refreshedProvider = buildProvider(provider.wallet);
-          setProvider(refreshedProvider);
-          await finalize(refreshedProvider);
-        } else {
-          throw e;
+      let lastError: unknown = null;
+      for (const endpoint of DEVNET_RPCS) {
+        const activeProvider =
+          endpoint === provider.connection.rpcEndpoint
+            ? provider
+            : buildProvider(provider.wallet, endpoint);
+        try {
+          if (activeProvider !== provider) {
+            setProvider(activeProvider);
+          }
+          await finalize(activeProvider);
+          lastError = null;
+          break;
+        } catch (e: unknown) {
+          lastError = e;
+          const msg = e instanceof Error ? e.message : String(e);
+          if (!isRetryableRpcError(msg)) {
+            throw e;
+          }
         }
       }
+      if (lastError) {
+        throw lastError;
+      }
     } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : String(e);
+      const msg = logError("commit", e);
       setErrorMessage(msg);
       setStatus("error");
     }
@@ -530,7 +686,7 @@ export default function Page() {
         setVerificationMessage("verification passed: hashes match");
       }
     } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : String(e);
+      const msg = logError("verify-local", e);
       setVerificationMessage(`verification error: ${msg}`);
     }
   };
@@ -562,7 +718,7 @@ export default function Page() {
         setOnchainVerificationMessage("on-chain verification passed");
       }
     } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : String(e);
+      const msg = logError("verify-onchain", e);
       setOnchainVerificationMessage(`on-chain verification error: ${msg}`);
     }
   };
@@ -664,32 +820,58 @@ export default function Page() {
             }}
           />
           <div style={{ display: "grid", gap: 8, gridTemplateColumns: "1fr 1fr" }}>
-            <input
-              value={batchIdInput}
-              onChange={(event) => setBatchIdInput(event.target.value)}
-              placeholder="Batch ID (u64)"
-              style={{
-                padding: "8px 10px",
-                borderRadius: 8,
-                border: "1px solid #333",
-                background: "transparent",
-                color: "inherit",
-                fontFamily: "monospace",
-              }}
-            />
-            <input
-              value={kindInput}
-              onChange={(event) => setKindInput(event.target.value)}
-              placeholder="Kind (0-255)"
-              style={{
-                padding: "8px 10px",
-                borderRadius: 8,
-                border: "1px solid #333",
-                background: "transparent",
-                color: "inherit",
-                fontFamily: "monospace",
-              }}
-            />
+            <div style={{ display: "grid", gap: 4 }}>
+              <input
+                value={batchIdInput}
+                onChange={(event) => {
+                  setBatchIdInput(event.target.value);
+                  setValidationErrors((current) => ({
+                    ...current,
+                    batchId: undefined,
+                  }));
+                }}
+                placeholder="Batch ID (u64)"
+                style={{
+                  padding: "8px 10px",
+                  borderRadius: 8,
+                  border: "1px solid #333",
+                  background: "transparent",
+                  color: "inherit",
+                  fontFamily: "monospace",
+                }}
+              />
+              {validationErrors.batchId && (
+                <div style={{ fontSize: 12, color: "#b00020" }}>
+                  {validationErrors.batchId}
+                </div>
+              )}
+            </div>
+            <div style={{ display: "grid", gap: 4 }}>
+              <input
+                value={kindInput}
+                onChange={(event) => {
+                  setKindInput(event.target.value);
+                  setValidationErrors((current) => ({
+                    ...current,
+                    kind: undefined,
+                  }));
+                }}
+                placeholder="Kind (0-255)"
+                style={{
+                  padding: "8px 10px",
+                  borderRadius: 8,
+                  border: "1px solid #333",
+                  background: "transparent",
+                  color: "inherit",
+                  fontFamily: "monospace",
+                }}
+              />
+              {validationErrors.kind && (
+                <div style={{ fontSize: 12, color: "#b00020" }}>
+                  {validationErrors.kind}
+                </div>
+              )}
+            </div>
           </div>
         </div>
       </div>
@@ -723,6 +905,11 @@ export default function Page() {
                   fontFamily: "monospace",
                 }}
               />
+              {validationErrors.recipients[index]?.recipientCaip10 && (
+                <div style={{ fontSize: 12, color: "#b00020" }}>
+                  {validationErrors.recipients[index]?.recipientCaip10}
+                </div>
+              )}
               <input
                 value={recipient.amount}
                 onChange={(event) =>
@@ -738,6 +925,11 @@ export default function Page() {
                   fontFamily: "monospace",
                 }}
               />
+              {validationErrors.recipients[index]?.amount && (
+                <div style={{ fontSize: 12, color: "#b00020" }}>
+                  {validationErrors.recipients[index]?.amount}
+                </div>
+              )}
               <input
                 value={recipient.assetCaip19}
                 onChange={(event) =>
@@ -753,6 +945,11 @@ export default function Page() {
                   fontFamily: "monospace",
                 }}
               />
+              {validationErrors.recipients[index]?.assetCaip19 && (
+                <div style={{ fontSize: 12, color: "#b00020" }}>
+                  {validationErrors.recipients[index]?.assetCaip19}
+                </div>
+              )}
               {recipients.length > 1 && (
                 <button
                   onClick={() => removeRecipient(index)}
@@ -1103,6 +1300,12 @@ export default function Page() {
       {errorMessage && (
         <div style={{ marginTop: 12, color: "#b00020" }}>
           error: {errorMessage}
+        </div>
+      )}
+
+      {lastErrorLog && (
+        <div style={{ marginTop: 8, fontFamily: "monospace", fontSize: 12 }}>
+          last_error: {lastErrorLog.context} · {lastErrorLog.time}
         </div>
       )}
     </main>
