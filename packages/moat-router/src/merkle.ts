@@ -58,7 +58,8 @@ export const toHex = (bytes: Uint8Array) =>
     .join("");
 
 export const sha256 = async (data: Uint8Array) => {
-  const digest = await getSubtle().digest("SHA-256", data);
+  const safe = new Uint8Array(data);
+  const digest = await getSubtle().digest("SHA-256", safe);
   return new Uint8Array(digest);
 };
 
