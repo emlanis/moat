@@ -7,6 +7,8 @@ const textEncoder = new TextEncoder();
 const MAX_U32 = 0xffffffff;
 const MAX_U64 = BigInt("18446744073709551615");
 const ZERO_U64 = BigInt(0);
+const U64_MASK = BigInt("255");
+const U64_SHIFT = BigInt("8");
 
 const getSubtle = () => {
   const subtle = globalThis.crypto?.subtle;
@@ -44,8 +46,8 @@ const toU64Le = (value: bigint) => {
   const out = new Uint8Array(8);
   let remaining = value;
   for (let i = 0; i < 8; i += 1) {
-    out[i] = Number(remaining & 0xffn);
-    remaining >>= 8n;
+    out[i] = Number(remaining & U64_MASK);
+    remaining >>= U64_SHIFT;
   }
   return out;
 };
