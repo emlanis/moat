@@ -600,14 +600,15 @@ export default function Page() {
         setStatus("confirmed");
       };
 
+      const baseProvider = provider;
       let lastError: unknown = null;
       for (const endpoint of DEVNET_RPCS) {
-        const activeProvider =
-          endpoint === provider.connection.rpcEndpoint
-            ? provider
-            : buildProvider(provider.wallet, endpoint);
+        const activeProvider: AnchorProvider =
+          endpoint === baseProvider.connection.rpcEndpoint
+            ? baseProvider
+            : buildProvider(baseProvider.wallet, endpoint);
         try {
-          if (activeProvider !== provider) {
+          if (activeProvider !== baseProvider) {
             setProvider(activeProvider);
           }
           await finalize(activeProvider);
