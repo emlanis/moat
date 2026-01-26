@@ -735,9 +735,10 @@ export default function Page() {
           priority
         />
         <div>
-          <h1 style={{ fontSize: 32, fontWeight: 700 }}>Moat Registry</h1>
+          <h1 style={{ fontSize: 32, fontWeight: 700 }}>Moat</h1>
           <p style={{ opacity: 0.8 }}>
-            Devnet proof layer: commit_batch (payout commitments)
+            Moat registry for privacy-preserving payout commitments: devnet uses
+            mock swaps, and Solana mainnet uses SilentSwap.
           </p>
         </div>
       </div>
