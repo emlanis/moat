@@ -351,6 +351,31 @@ export default function Page() {
     }
   };
 
+  const getHealthyProvider = async (
+    wallet: WalletLike,
+    preferred?: AnchorProvider,
+  ) => {
+    const start =
+      preferred?.connection.rpcEndpoint ?? DEVNET_RPCS[0] ?? DEVNET_RPC;
+    const endpoints = [start, ...DEVNET_RPCS.filter((rpc) => rpc !== start)];
+    for (const endpoint of endpoints) {
+      const candidate =
+        preferred?.connection.rpcEndpoint === endpoint
+          ? preferred
+          : buildProvider(wallet, endpoint);
+      try {
+        await candidate.connection.getLatestBlockhash("confirmed");
+        if (candidate !== preferred) {
+          setProvider(candidate);
+        }
+        return candidate;
+      } catch {
+        // Try next RPC.
+      }
+    }
+    return preferred ?? buildProvider(wallet);
+  };
+
   const clearValidationForRecipient = (
     index: number,
     field?: keyof RecipientInput,
@@ -619,6 +644,7 @@ export default function Page() {
         );
 
       const finalize = async (activeProvider: AnchorProvider) => {
+        await activeProvider.connection.getLatestBlockhash("confirmed");
         const signatureValue = await sendCommit(activeProvider);
         setSignature(signatureValue);
         const batch = await fetchBatchCommit(
@@ -631,7 +657,7 @@ export default function Page() {
         setStatus("confirmed");
       };
 
-      const baseProvider = provider;
+      const baseProvider = await getHealthyProvider(provider.wallet, provider);
       let lastError: unknown = null;
       for (const endpoint of DEVNET_RPCS) {
         const activeProvider: AnchorProvider =
