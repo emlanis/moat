@@ -747,8 +747,9 @@ export default function Page() {
         <div>
           <h1 style={{ fontSize: 32, fontWeight: 700 }}>Moat</h1>
           <p style={{ opacity: 0.8 }}>
-            Moat registry for privacy-preserving payout commitments: devnet uses
-            mock swaps, and Solana mainnet uses SilentSwap.
+            Moat registry for privacy-preserving payout commitments: devnet
+            records batch proofs only, and Solana mainnet uses SilentSwap for
+            private execution.
           </p>
         </div>
       </div>
