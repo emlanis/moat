@@ -264,6 +264,8 @@ export default function Page() {
   const isBusy =
     status === "connecting" || status === "building" || status === "sending";
 
+  const network = mode === "mainnet-silentswap" ? "mainnet" : "devnet";
+
   const solscanUrl = signature
     ? `https://solscan.io/tx/${encodeURIComponent(signature)}?cluster=devnet`
     : null;
@@ -378,7 +380,6 @@ export default function Page() {
       errors.kind = e instanceof Error ? e.message : String(e);
     }
 
-    const network = mode === "mainnet-silentswap" ? "mainnet" : "devnet";
     const cleanedRecipients: CommitmentRecipient[] = recipients.map(
       (recipient, index) => {
         const rawRecipient = recipient.recipientCaip10.trim();
@@ -916,6 +917,12 @@ export default function Page() {
                   fontFamily: "monospace",
                 }}
               />
+              {recipient.recipientCaip10.trim() && (
+                <div style={{ fontSize: 12, opacity: 0.7 }}>
+                  normalized:{" "}
+                  {normalizeCaip(recipient.recipientCaip10, network)}
+                </div>
+              )}
               {validationErrors.recipients[index]?.recipientCaip10 && (
                 <div style={{ fontSize: 12, color: "#b00020" }}>
                   {validationErrors.recipients[index]?.recipientCaip10}
@@ -956,6 +963,11 @@ export default function Page() {
                   fontFamily: "monospace",
                 }}
               />
+              {recipient.assetCaip19.trim() && (
+                <div style={{ fontSize: 12, opacity: 0.7 }}>
+                  normalized: {normalizeCaip(recipient.assetCaip19, network)}
+                </div>
+              )}
               {validationErrors.recipients[index]?.assetCaip19 && (
                 <div style={{ fontSize: 12, color: "#b00020" }}>
                   {validationErrors.recipients[index]?.assetCaip19}
