@@ -140,6 +140,9 @@ const isRetryableRpcError = (message: string) => {
   const normalized = message.toLowerCase();
   return (
     normalized.includes("blockhash not found") ||
+    normalized.includes("failed to get recent blockhash") ||
+    normalized.includes("get latest blockhash") ||
+    normalized.includes("expected the value to satisfy a union") ||
     normalized.includes("429") ||
     normalized.includes("rate limit") ||
     normalized.includes("node is behind") ||
@@ -185,6 +188,24 @@ const normalizeCaip = (value: string, network: "devnet" | "mainnet") => {
   const trimmed = value.trim();
   if (!trimmed) return trimmed;
   return trimmed.includes(":") ? trimmed : `solana:${network}:${trimmed}`;
+};
+
+const humanizeError = (message: string) => {
+  const normalized = message.toLowerCase();
+  if (
+    normalized.includes("failed to get recent blockhash") ||
+    normalized.includes("get latest blockhash") ||
+    normalized.includes("expected the value to satisfy a union")
+  ) {
+    return "RPC error: failed to fetch recent blockhash. Please retry.";
+  }
+  if (normalized.includes("blockhash not found")) {
+    return "RPC error: blockhash expired. Please retry.";
+  }
+  if (normalized.includes("rate limit") || normalized.includes("429")) {
+    return "RPC rate-limited. Please retry in a moment.";
+  }
+  return message;
 };
 
 const formatCreatedAt = (value: BN) => {
@@ -460,7 +481,7 @@ export default function Page() {
       await refreshHistory(nextProvider);
     } catch (e: unknown) {
       const msg = logError("connect", e);
-      setErrorMessage(msg);
+      setErrorMessage(humanizeError(msg));
       setStatus("error");
     }
   };
@@ -637,7 +658,7 @@ export default function Page() {
       }
     } catch (e: unknown) {
       const msg = logError("commit", e);
-      setErrorMessage(msg);
+      setErrorMessage(humanizeError(msg));
       setStatus("error");
     }
   };
@@ -698,7 +719,7 @@ export default function Page() {
       }
     } catch (e: unknown) {
       const msg = logError("verify-local", e);
-      setVerificationMessage(`verification error: ${msg}`);
+      setVerificationMessage(`verification error: ${humanizeError(msg)}`);
     }
   };
 
@@ -730,7 +751,9 @@ export default function Page() {
       }
     } catch (e: unknown) {
       const msg = logError("verify-onchain", e);
-      setOnchainVerificationMessage(`on-chain verification error: ${msg}`);
+      setOnchainVerificationMessage(
+        `on-chain verification error: ${humanizeError(msg)}`,
+      );
     }
   };
 
