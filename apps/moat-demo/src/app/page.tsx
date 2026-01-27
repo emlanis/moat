@@ -181,6 +181,12 @@ const isNumericAmount = (value: string) => /^\d+(\.\d+)?$/.test(value);
 
 const hasCaipSegments = (value: string) => value.split(":").length >= 3;
 
+const normalizeCaip = (value: string, network: "devnet" | "mainnet") => {
+  const trimmed = value.trim();
+  if (!trimmed) return trimmed;
+  return trimmed.includes(":") ? trimmed : `solana:${network}:${trimmed}`;
+};
+
 const formatCreatedAt = (value: BN) => {
   let label = value.toString();
   try {
@@ -372,17 +378,20 @@ export default function Page() {
       errors.kind = e instanceof Error ? e.message : String(e);
     }
 
+    const network = mode === "mainnet-silentswap" ? "mainnet" : "devnet";
     const cleanedRecipients: CommitmentRecipient[] = recipients.map(
       (recipient, index) => {
-        const recipientCaip10 = recipient.recipientCaip10.trim();
+        const rawRecipient = recipient.recipientCaip10.trim();
+        const recipientCaip10 = normalizeCaip(rawRecipient, network);
         const amount = recipient.amount.trim();
-        const assetCaip19 = recipient.assetCaip19.trim();
-        if (!recipientCaip10) {
+        const rawAsset = recipient.assetCaip19.trim();
+        const assetCaip19 = normalizeCaip(rawAsset, network);
+        if (!rawRecipient) {
           errors.recipients[index].recipientCaip10 =
-            "Recipient CAIP-10 is required";
-        } else if (!hasCaipSegments(recipientCaip10)) {
+            "Recipient address is required";
+        } else if (rawRecipient.includes(":") && !hasCaipSegments(rawRecipient)) {
           errors.recipients[index].recipientCaip10 =
-            "Recipient CAIP-10 must look like solana:devnet:<address>";
+            "Recipient must be CAIP-10 like solana:devnet:<address>";
         }
         if (!amount) {
           errors.recipients[index].amount = "Amount is required";
@@ -390,11 +399,11 @@ export default function Page() {
           errors.recipients[index].amount =
             "Amount must be a numeric string";
         }
-        if (!assetCaip19) {
+        if (!rawAsset) {
           errors.recipients[index].assetCaip19 = "Asset CAIP-19 is required";
-        } else if (!hasCaipSegments(assetCaip19)) {
+        } else if (rawAsset.includes(":") && !hasCaipSegments(rawAsset)) {
           errors.recipients[index].assetCaip19 =
-            "Asset CAIP-19 must look like solana:devnet:<mint>";
+            "Asset must be CAIP-19 like solana:devnet:<mint>";
         }
         return { recipientCaip10, amount, assetCaip19 };
       },
@@ -897,7 +906,7 @@ export default function Page() {
                 onChange={(event) =>
                   updateRecipient(index, "recipientCaip10", event.target.value)
                 }
-                placeholder="Recipient CAIP-10 (e.g. solana:devnet:...)"
+                placeholder="Recipient (Solana address or CAIP-10)"
                 style={{
                   padding: "8px 10px",
                   borderRadius: 8,
@@ -937,7 +946,7 @@ export default function Page() {
                 onChange={(event) =>
                   updateRecipient(index, "assetCaip19", event.target.value)
                 }
-                placeholder="Asset CAIP-19 (e.g. solana:devnet:So111...)"
+                placeholder="Asset mint (Solana address or CAIP-19)"
                 style={{
                   padding: "8px 10px",
                   borderRadius: 8,
